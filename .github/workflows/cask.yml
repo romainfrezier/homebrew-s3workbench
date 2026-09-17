@@ -23,6 +23,7 @@ jobs:
       - name: Load the exact candidate into Homebrew
         run: |
           test "$(uname -m)" = arm64
+          brew update
           brew tap romainfrezier/s3workbench
           tap=$(brew --repo romainfrezier/s3workbench)
           git -C "$tap" fetch "$GITHUB_WORKSPACE" "$GITHUB_SHA"
