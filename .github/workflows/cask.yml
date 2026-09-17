@@ -18,6 +18,8 @@ jobs:
       HOMEBREW_NO_ANALYTICS: 1
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Load the exact candidate into Homebrew
         run: |
           test "$(uname -m)" = arm64
