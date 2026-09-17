@@ -1,0 +1,70 @@
+name: Cask
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_ANALYTICS: 1
+    steps:
+      - uses: actions/checkout@v7
+      - name: Load the exact candidate into Homebrew
+        run: |
+          test "$(uname -m)" = arm64
+          brew tap romainfrezier/s3workbench
+          tap=$(brew --repo romainfrezier/s3workbench)
+          git -C "$tap" fetch "$GITHUB_WORKSPACE" "$GITHUB_SHA"
+          git -C "$tap" checkout --detach FETCH_HEAD
+          echo "CASK_FILE=$tap/Casks/s3-workbench.rb" >> "$GITHUB_ENV"
+      - name: Audit and style
+        run: |
+          brew audit --cask --strict romainfrezier/s3workbench/s3-workbench
+          brew style "$CASK_FILE"
+      - name: Clean install
+        run: |
+          brew install --cask romainfrezier/s3workbench/s3-workbench
+          expected=$(brew info --cask --json=v2 romainfrezier/s3workbench/s3-workbench | jq -r '.casks[0].version')
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/S3Workbench.app/Contents/Info.plist)" = "$expected"
+          test "$(lipo -archs /Applications/S3Workbench.app/Contents/MacOS/S3Workbench)" = arm64
+          codesign --verify --deep --strict /Applications/S3Workbench.app
+          brew uninstall --cask s3-workbench
+      - name: Upgrade from 0.6.0 preserves app data and Keychain
+        run: |
+          cp "$CASK_FILE" "$RUNNER_TEMP/current-cask.rb"
+          trap 'cp "$RUNNER_TEMP/current-cask.rb" "$CASK_FILE"' EXIT
+          ruby -e 'p = ARGV[0]; s = File.read(p).sub(/version ".*"/, %q(version "0.6.0")).sub(/sha256 ".*"/, %q(sha256 "f9201c719ae5a0508f5868e257b9d7444c1352143ae2b149ce5fb6725d9595b4")); File.write(p, s)' "$CASK_FILE"
+          brew install --cask romainfrezier/s3workbench/s3-workbench
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/S3Workbench.app/Contents/Info.plist)" = 0.6.0
+          data="$HOME/Library/Application Support/S3Workbench"
+          mkdir -p "$data"
+          printf 'homebrew-upgrade-fixture' > "$data/homebrew-upgrade-check"
+          security add-generic-password -s com.s3workbench.homebrew-ci -a upgrade -w homebrew-upgrade-fixture
+          cp "$RUNNER_TEMP/current-cask.rb" "$CASK_FILE"
+          brew upgrade --cask romainfrezier/s3workbench/s3-workbench
+          expected=$(brew info --cask --json=v2 romainfrezier/s3workbench/s3-workbench | jq -r '.casks[0].version')
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/S3Workbench.app/Contents/Info.plist)" = "$expected"
+          test "$(cat "$data/homebrew-upgrade-check")" = homebrew-upgrade-fixture
+          test "$(security find-generic-password -s com.s3workbench.homebrew-ci -a upgrade -w)" = homebrew-upgrade-fixture
+          security delete-generic-password -s com.s3workbench.homebrew-ci -a upgrade
+      - name: Reject a mismatched checksum
+        run: |
+          cp "$CASK_FILE" "$RUNNER_TEMP/current-cask.rb"
+          trap 'cp "$RUNNER_TEMP/current-cask.rb" "$CASK_FILE"' EXIT
+          ruby -e 'p = ARGV[0]; File.write(p, File.read(p).sub(/sha256 ".*"/, %Q(sha256 "#{"0" * 64}")))' "$CASK_FILE"
+          if brew fetch --force --cask romainfrezier/s3workbench/s3-workbench > "$RUNNER_TEMP/checksum.log" 2>&1; then
+            cat "$RUNNER_TEMP/checksum.log"
+            echo 'Homebrew accepted the incorrect checksum' >&2
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/checksum.log"
+          grep -Ei 'SHA-?256 mismatch|checksum mismatch' "$RUNNER_TEMP/checksum.log"
