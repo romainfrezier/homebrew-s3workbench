@@ -49,15 +49,18 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/S3Workbench.app/Contents/Info.plist)" = 0.6.0
           data="$HOME/Library/Application Support/S3Workbench"
           mkdir -p "$data"
-          printf 'homebrew-upgrade-fixture' > "$data/homebrew-upgrade-check"
-          security add-generic-password -s com.s3workbench.homebrew-ci -a upgrade -w homebrew-upgrade-fixture
+          connection_id=$(uuidgen)
+          printf '[{"id":"%s","name":"Homebrew CI","endpoint":"http://127.0.0.1:19000","region":"us-east-1","addressingStyle":"path","tlsVerification":"systemDefault"}]' "$connection_id" > "$data/connections.json"
+          cp "$data/connections.json" "$RUNNER_TEMP/connections-before.json"
+          credentials='{"accessKey":"homebrew-test","secretKey":"homebrew-upgrade-fixture"}'
+          security add-generic-password -s com.s3workbench.credentials -a "$connection_id" -w "$credentials"
           cp "$RUNNER_TEMP/current-cask.rb" "$CASK_FILE"
           brew upgrade --cask romainfrezier/s3workbench/s3-workbench
           expected=$(brew info --cask --json=v2 romainfrezier/s3workbench/s3-workbench | jq -r '.casks[0].version')
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/S3Workbench.app/Contents/Info.plist)" = "$expected"
-          test "$(cat "$data/homebrew-upgrade-check")" = homebrew-upgrade-fixture
-          test "$(security find-generic-password -s com.s3workbench.homebrew-ci -a upgrade -w)" = homebrew-upgrade-fixture
-          security delete-generic-password -s com.s3workbench.homebrew-ci -a upgrade
+          cmp "$RUNNER_TEMP/connections-before.json" "$data/connections.json"
+          test "$(security find-generic-password -s com.s3workbench.credentials -a "$connection_id" -w)" = "$credentials"
+          security delete-generic-password -s com.s3workbench.credentials -a "$connection_id"
       - name: Reject a mismatched checksum
         run: |
           cp "$CASK_FILE" "$RUNNER_TEMP/current-cask.rb"
@@ -69,4 +72,4 @@ jobs:
             exit 1
           fi
           cat "$RUNNER_TEMP/checksum.log"
-          grep -Ei 'SHA-?256 mismatch|checksum mismatch' "$RUNNER_TEMP/checksum.log"
+          grep -Ei 'SHA-?256 mismatch|checksum mismatch|Cask reports different checksum' "$RUNNER_TEMP/checksum.log"

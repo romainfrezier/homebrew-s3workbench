@@ -41,7 +41,8 @@ profiles, local indexes, preferences or Keychain credentials. This tap has no
 3. Change only `version` and `sha256` in `Casks/s3-workbench.rb`; the versioned URL
    updates automatically. Never use `:no_check` or a moving `latest` asset URL.
 4. Run `brew audit --cask --strict romainfrezier/s3workbench/s3-workbench` and
-   `brew style Casks/s3-workbench.rb`, then open a pull request and check its Cask workflow.
+   `brew style Casks/s3-workbench.rb` against the candidate in the installed tap
+   checkout, then open a pull request and check its Cask workflow.
 
 The workflow runs on an Apple Silicon GitHub runner and checks style/audit,
 fresh installation, upgrade from 0.6.0 with disposable data/Keychain sentinels,
